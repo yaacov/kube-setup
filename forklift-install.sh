@@ -153,6 +153,7 @@ spec:
   # ova_provider_server_fqin: quay.io/kubev2v/forklift-ova-provider-server:latest
   # ova_proxy_fqin: quay.io/kubev2v/forklift-ova-proxy:latest
   # hyperv_provider_server_fqin: quay.io/kubev2v/forklift-hyperv-provider-server:latest
+  
 EOF
     echo "ForkliftController created successfully."
     echo ""
