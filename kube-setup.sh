@@ -4,9 +4,19 @@
 #
 # Cross-platform: Linux/macOS, bash/zsh
 
+# Determine script directory (works when sourced from any location)
+if [ -n "$BASH_SOURCE" ]; then
+    _script_dir="$(cd "$(dirname "$BASH_SOURCE")" && pwd)"
+elif [ -n "$ZSH_VERSION" ]; then
+    _script_dir="$(cd "$(dirname "${(%):-%x}")" && pwd)"
+else
+    _script_dir="$(cd "$(dirname "$0")" && pwd)"
+fi
+
 # Parse flags
 _setup_cluster_login=0
 _setup_cluster_cleanup=0
+_setup_cluster_forklift=0
 
 for _arg in "$@"; do
     case "$_arg" in
@@ -16,8 +26,11 @@ for _arg in "$@"; do
         --cleanup)
             _setup_cluster_cleanup=1
             ;;
+        --forklift)
+            _setup_cluster_forklift=1
+            ;;
         --help|-h)
-            echo "Usage: source $0 [--login] [--cleanup]"
+            echo "Usage: source $0 [--login] [--cleanup] [--forklift]"
             echo ""
             echo "Environment variables (required for setup):"
             echo "  CLUSTER     - Cluster name"
@@ -29,11 +42,29 @@ for _arg in "$@"; do
             echo "Flags:"
             echo "  --login     - Also export KUBECONFIG to login to the cluster"
             echo "  --cleanup   - Unset all variables and unmount NFS"
+            echo "  --forklift  - Install Forklift operator (assumes already logged in)"
             echo "  --help, -h  - Show this help message"
             return 0 2>/dev/null || exit 0
             ;;
     esac
 done
+
+# Forklift-only flow (assumes already logged in, no env vars set/unset)
+if [ "$_setup_cluster_forklift" = "1" ]; then
+    _forklift_script="$_script_dir/forklift-install.sh"
+    if [ -f "$_forklift_script" ]; then
+        echo "Running Forklift installation..."
+        "$_forklift_script"
+        _forklift_exit=$?
+    else
+        echo "Error: forklift-install.sh not found at $_forklift_script"
+        _forklift_exit=1
+    fi
+    # Cleanup only the temporary variables we created
+    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _arg
+    unset _script_dir _forklift_script _forklift_exit
+    return 0 2>/dev/null || exit 0
+fi
 
 # Cleanup flow
 if [ "$_setup_cluster_cleanup" = "1" ]; then
@@ -68,7 +99,9 @@ if [ "$_setup_cluster_cleanup" = "1" ]; then
     # Cleanup temporary variables
     unset _setup_cluster_login
     unset _setup_cluster_cleanup
+    unset _setup_cluster_forklift
     unset _arg
+    unset _script_dir
     
     echo "Cleanup complete."
     return 0 2>/dev/null || exit 0
@@ -78,14 +111,14 @@ fi
 if [ -z "$CLUSTER" ]; then
     echo "Error: CLUSTER environment variable is not set"
     echo "Usage: export CLUSTER=<cluster-name> && source $0"
-    unset _setup_cluster_login _setup_cluster_cleanup _arg
+    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _arg _script_dir
     return 1 2>/dev/null || exit 1
 fi
 
 if [ -z "$NFS_SERVER" ]; then
     echo "Error: NFS_SERVER environment variable is not set"
     echo "Usage: export NFS_SERVER=<server>:<path> && source $0"
-    unset _setup_cluster_login _setup_cluster_cleanup _arg
+    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _arg _script_dir
     return 1 2>/dev/null || exit 1
 fi
 
@@ -100,7 +133,7 @@ if [ ! -d "$MOUNT_DIR" ]; then
     mkdir -p "$MOUNT_DIR"
     if [ $? -ne 0 ]; then
         echo "Error: Failed to create mount directory $MOUNT_DIR"
-        unset _setup_cluster_login _setup_cluster_cleanup _arg
+        unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _arg _script_dir
         return 1 2>/dev/null || exit 1
     fi
 fi
@@ -111,7 +144,7 @@ if ! mount | grep -q " $MOUNT_DIR "; then
     sudo mount -t nfs "$NFS_SERVER" "$MOUNT_DIR"
     if [ $? -ne 0 ]; then
         echo "Error: Failed to mount NFS share"
-        unset _setup_cluster_login _setup_cluster_cleanup _arg
+        unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _arg _script_dir
         return 1 2>/dev/null || exit 1
     fi
     echo "NFS mounted successfully."
@@ -125,7 +158,7 @@ if [ ! -d "$_cluster_dir" ]; then
     echo "Error: Cluster directory not found: $_cluster_dir"
     echo "Available clusters:"
     ls "$MOUNT_DIR" 2>/dev/null | head -20
-    unset _setup_cluster_login _setup_cluster_cleanup _arg _cluster_dir
+    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _arg _cluster_dir _script_dir
     return 1 2>/dev/null || exit 1
 fi
 
@@ -133,7 +166,7 @@ fi
 _auth_dir="$_cluster_dir/auth"
 if [ ! -d "$_auth_dir" ]; then
     echo "Error: Auth directory not found: $_auth_dir"
-    unset _setup_cluster_login _setup_cluster_cleanup _arg _cluster_dir _auth_dir
+    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _arg _cluster_dir _auth_dir _script_dir
     return 1 2>/dev/null || exit 1
 fi
 
@@ -143,13 +176,13 @@ _password_file="$_auth_dir/kubeadmin-password"
 
 if [ ! -f "$_kubeconfig_file" ]; then
     echo "Error: kubeconfig file not found: $_kubeconfig_file"
-    unset _setup_cluster_login _setup_cluster_cleanup _arg _cluster_dir _auth_dir _kubeconfig_file _password_file
+    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _arg _cluster_dir _auth_dir _kubeconfig_file _password_file _script_dir
     return 1 2>/dev/null || exit 1
 fi
 
 if [ ! -f "$_password_file" ]; then
     echo "Error: kubeadmin-password file not found: $_password_file"
-    unset _setup_cluster_login _setup_cluster_cleanup _arg _cluster_dir _auth_dir _kubeconfig_file _password_file
+    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _arg _cluster_dir _auth_dir _kubeconfig_file _password_file _script_dir
     return 1 2>/dev/null || exit 1
 fi
 
@@ -164,7 +197,7 @@ if [ -z "$_token_value" ]; then
     # No token in kubeconfig - get one using kubectl create token
     if ! command -v kubectl >/dev/null 2>&1; then
         echo "Error: kubectl not found (requires kubectl 1.24+)"
-        unset _setup_cluster_login _setup_cluster_cleanup _arg _cluster_dir _auth_dir _kubeconfig_file _password_file
+        unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _arg _cluster_dir _auth_dir _kubeconfig_file _password_file _script_dir
         return 1 2>/dev/null || exit 1
     fi
     
@@ -176,7 +209,7 @@ if [ -z "$_token_value" ]; then
         echo "Error: Could not obtain SA token"
         echo "  $_token_value"
         echo "  Note: Requires kubectl 1.24+"
-        unset _setup_cluster_login _setup_cluster_cleanup _arg _cluster_dir _auth_dir _kubeconfig_file _password_file _token_value
+        unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _arg _cluster_dir _auth_dir _kubeconfig_file _password_file _token_value _script_dir
         return 1 2>/dev/null || exit 1
     fi
     
@@ -201,8 +234,9 @@ if [ "$_setup_cluster_login" = "1" ]; then
 fi
 
 # Cleanup temporary variables
-unset _setup_cluster_login _setup_cluster_cleanup _arg
+unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _arg
 unset _cluster_dir _auth_dir _kubeconfig_file _password_file _api_url_no_port _token_value
+unset _script_dir _forklift_script
 
 # Print summary
 echo ""
