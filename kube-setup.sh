@@ -63,12 +63,16 @@ for _arg in "$@"; do
         --help|-h)
             echo "Usage: source $0 [--login] [--cleanup] [--forklift] [--forklift-cleanup]"
             echo ""
-            echo "Environment variables (required for setup):"
+            echo "Environment variables (required):"
             echo "  CLUSTER     - Cluster name"
+            echo ""
+            echo "Environment variables (optional - for mounting/extracting new sources):"
             echo "  NFS_SERVER  - NFS server address (e.g., server:/path)"
-            echo "              OR"
             echo "  CI_ZIP_FILE - Path to CI zip file containing cluster credentials"
             echo "                (zip structure: home/jenkins/cnv-qe.rhood.us/<CLUSTER>/auth/)"
+            echo ""
+            echo "  Note: Cluster lookup tries NFS dir first, then CI zip dir."
+            echo "        Directories from previous mounts/extractions are also checked."
             echo ""
             echo "Environment variables (optional):"
             echo "  MOUNT_DIR       - NFS mount point directory (default: ~/cluster-credentials)"
@@ -169,38 +173,31 @@ if [ "$_setup_cluster_cleanup" = "1" ]; then
     unset KUBE_TOKEN
     unset KUBECONFIG
     
-    # Check if we're using CI zip mode or NFS mode
-    if [ -n "$CI_ZIP_FILE" ]; then
-        # CI zip mode - remove extracted files
-        if [ -z "$CI_EXTRACT_DIR" ]; then
-            CI_EXTRACT_DIR="$HOME/ci-credentials"
-        fi
-        if [ -d "$CI_EXTRACT_DIR" ]; then
-            echo "Removing extracted CI files from $CI_EXTRACT_DIR..."
-            rm -rf "$CI_EXTRACT_DIR"
-            if [ $? -eq 0 ]; then
-                echo "Successfully removed extracted files"
-            else
-                echo "Error: Failed to remove extracted files"
-            fi
+    # Cleanup NFS mount (always try)
+    if [ -z "$MOUNT_DIR" ]; then
+        MOUNT_DIR="$HOME/cluster-credentials"
+    fi
+    if mount | grep -q " $MOUNT_DIR "; then
+        echo "Unmounting $MOUNT_DIR..."
+        sudo umount "$MOUNT_DIR"
+        if [ $? -eq 0 ]; then
+            echo "Successfully unmounted $MOUNT_DIR"
         else
-            echo "No extracted CI files found at $CI_EXTRACT_DIR"
+            echo "Error: Failed to unmount $MOUNT_DIR"
         fi
-    else
-        # NFS mode - unmount if mounted
-        if [ -z "$MOUNT_DIR" ]; then
-            MOUNT_DIR="$HOME/cluster-credentials"
-        fi
-        if mount | grep -q " $MOUNT_DIR "; then
-            echo "Unmounting $MOUNT_DIR..."
-            sudo umount "$MOUNT_DIR"
-            if [ $? -eq 0 ]; then
-                echo "Successfully unmounted $MOUNT_DIR"
-            else
-                echo "Error: Failed to unmount $MOUNT_DIR"
-            fi
+    fi
+    
+    # Cleanup CI zip extracted files (always try if directory exists)
+    if [ -z "$CI_EXTRACT_DIR" ]; then
+        CI_EXTRACT_DIR="$HOME/ci-credentials"
+    fi
+    if [ -d "$CI_EXTRACT_DIR" ]; then
+        echo "Removing extracted CI files from $CI_EXTRACT_DIR..."
+        rm -rf "$CI_EXTRACT_DIR"
+        if [ $? -eq 0 ]; then
+            echo "Successfully removed extracted files"
         else
-            echo "NFS not mounted at $MOUNT_DIR"
+            echo "Error: Failed to remove extracted files"
         fi
     fi
     
@@ -226,71 +223,14 @@ if [ -z "$CLUSTER" ]; then
     return 1 2>/dev/null || exit 1
 fi
 
-# Check if either NFS_SERVER or CI_ZIP_FILE is set
-if [ -z "$NFS_SERVER" ] && [ -z "$CI_ZIP_FILE" ]; then
-    echo "Error: Either NFS_SERVER or CI_ZIP_FILE environment variable must be set"
-    echo "Usage: export NFS_SERVER=<server>:<path> && source $0"
-    echo "   or: export CI_ZIP_FILE=<path-to-zip> && source $0"
-    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir
-    return 1 2>/dev/null || exit 1
+# Set default MOUNT_DIR if not set
+if [ -z "$MOUNT_DIR" ]; then
+    MOUNT_DIR="$HOME/cluster-credentials"
 fi
 
-# Determine credentials source: CI zip file or NFS mount
-if [ -n "$CI_ZIP_FILE" ]; then
-    # CI zip file mode
-    echo "Using CI zip file mode..."
-    
-    # Verify zip file exists
-    if [ ! -f "$CI_ZIP_FILE" ]; then
-        echo "Error: CI zip file not found: $CI_ZIP_FILE"
-        unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir
-        return 1 2>/dev/null || exit 1
-    fi
-    
-    # Verify unzip is available
-    if ! command -v unzip >/dev/null 2>&1; then
-        echo "Error: unzip command not found"
-        unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir
-        return 1 2>/dev/null || exit 1
-    fi
-    
-    # Set default CI_EXTRACT_DIR if not set
-    if [ -z "$CI_EXTRACT_DIR" ]; then
-        CI_EXTRACT_DIR="$HOME/ci-credentials"
-    fi
-    
-    # Create extraction directory
-    if [ ! -d "$CI_EXTRACT_DIR" ]; then
-        echo "Creating extraction directory: $CI_EXTRACT_DIR"
-        mkdir -p "$CI_EXTRACT_DIR"
-        if [ $? -ne 0 ]; then
-            echo "Error: Failed to create extraction directory $CI_EXTRACT_DIR"
-            unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir
-            return 1 2>/dev/null || exit 1
-        fi
-    fi
-    
-    # Extract the zip file
-    echo "Extracting CI zip file to $CI_EXTRACT_DIR..."
-    unzip -o -q "$CI_ZIP_FILE" -d "$CI_EXTRACT_DIR"
-    if [ $? -ne 0 ]; then
-        echo "Error: Failed to extract CI zip file"
-        unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir
-        return 1 2>/dev/null || exit 1
-    fi
-    echo "CI zip file extracted successfully."
-    
-    # Set cluster directory to the CI zip structure path
-    # Expected structure: home/jenkins/cnv-qe.rhood.us/<CLUSTER>/auth/
-    _cluster_dir="$CI_EXTRACT_DIR/home/jenkins/cnv-qe.rhood.us/$CLUSTER"
-else
-    # NFS mount mode
-    echo "Using NFS mount mode..."
-    
-    # Set default MOUNT_DIR if not set
-    if [ -z "$MOUNT_DIR" ]; then
-        MOUNT_DIR="$HOME/cluster-credentials"
-    fi
+# Mount NFS if NFS_SERVER is set
+if [ -n "$NFS_SERVER" ]; then
+    echo "Setting up NFS mount..."
     
     # Ensure mount directory exists
     if [ ! -d "$MOUNT_DIR" ]; then
@@ -316,25 +256,93 @@ else
     else
         echo "NFS already mounted at $MOUNT_DIR"
     fi
-    
-    # Set cluster directory to NFS path
-    _cluster_dir="$MOUNT_DIR/$CLUSTER"
 fi
 
-# Verify cluster directory exists
-if [ ! -d "$_cluster_dir" ]; then
-    echo "Error: Cluster directory not found: $_cluster_dir"
-    echo "Available clusters:"
-    ls "$MOUNT_DIR" 2>/dev/null | head -20
-    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _script_dir
+# Set NFS cluster dir path (may exist from previous mount)
+_nfs_cluster_dir="$MOUNT_DIR/$CLUSTER"
+
+# Set default CI_EXTRACT_DIR if not set
+if [ -z "$CI_EXTRACT_DIR" ]; then
+    CI_EXTRACT_DIR="$HOME/ci-credentials"
+fi
+
+# Extract CI zip file if CI_ZIP_FILE is set
+if [ -n "$CI_ZIP_FILE" ]; then
+    echo "Setting up CI zip file..."
+    
+    # Verify zip file exists
+    if [ ! -f "$CI_ZIP_FILE" ]; then
+        echo "Error: CI zip file not found: $CI_ZIP_FILE"
+        unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir
+        return 1 2>/dev/null || exit 1
+    fi
+    
+    # Verify unzip is available
+    if ! command -v unzip >/dev/null 2>&1; then
+        echo "Error: unzip command not found"
+        unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir
+        return 1 2>/dev/null || exit 1
+    fi
+    
+    # Create extraction directory
+    if [ ! -d "$CI_EXTRACT_DIR" ]; then
+        echo "Creating extraction directory: $CI_EXTRACT_DIR"
+        mkdir -p "$CI_EXTRACT_DIR"
+        if [ $? -ne 0 ]; then
+            echo "Error: Failed to create extraction directory $CI_EXTRACT_DIR"
+            unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir
+            return 1 2>/dev/null || exit 1
+        fi
+    fi
+    
+    # Extract the zip file
+    echo "Extracting CI zip file to $CI_EXTRACT_DIR..."
+    unzip -o -q "$CI_ZIP_FILE" -d "$CI_EXTRACT_DIR"
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to extract CI zip file"
+        unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir
+        return 1 2>/dev/null || exit 1
+    fi
+    echo "CI zip file extracted successfully."
+fi
+
+# Set zip cluster dir path (may exist from previous extraction)
+# Expected structure: home/jenkins/cnv-qe.rhood.us/<CLUSTER>/auth/
+_zip_cluster_dir="$CI_EXTRACT_DIR/home/jenkins/cnv-qe.rhood.us/$CLUSTER"
+
+# Find cluster directory: try NFS first, then ZIP
+_cluster_dir=""
+if [ -n "$_nfs_cluster_dir" ] && [ -d "$_nfs_cluster_dir" ]; then
+    echo "Found cluster in NFS: $_nfs_cluster_dir"
+    _cluster_dir="$_nfs_cluster_dir"
+elif [ -n "$_zip_cluster_dir" ] && [ -d "$_zip_cluster_dir" ]; then
+    echo "Found cluster in CI zip: $_zip_cluster_dir"
+    _cluster_dir="$_zip_cluster_dir"
+fi
+
+# Verify cluster directory was found
+if [ -z "$_cluster_dir" ]; then
+    echo "Error: Cluster '$CLUSTER' not found in any configured source"
+    if [ -d "$MOUNT_DIR" ] && [ -n "$(ls -A "$MOUNT_DIR" 2>/dev/null)" ]; then
+        echo "  Checked NFS: $_nfs_cluster_dir"
+        echo "  Available clusters in NFS:"
+        ls "$MOUNT_DIR" 2>/dev/null | head -20 | sed 's/^/    /'
+    fi
+    if [ -d "$CI_EXTRACT_DIR/home/jenkins/cnv-qe.rhood.us" ]; then
+        echo "  Checked CI zip: $_zip_cluster_dir"
+        echo "  Available clusters in CI zip:"
+        ls "$CI_EXTRACT_DIR/home/jenkins/cnv-qe.rhood.us" 2>/dev/null | head -20 | sed 's/^/    /'
+    fi
+    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _nfs_cluster_dir _zip_cluster_dir _script_dir
     return 1 2>/dev/null || exit 1
 fi
+unset _nfs_cluster_dir _zip_cluster_dir
 
 # Verify auth directory exists
 _auth_dir="$_cluster_dir/auth"
 if [ ! -d "$_auth_dir" ]; then
     echo "Error: Auth directory not found: $_auth_dir"
-    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _auth_dir _script_dir
+    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _auth_dir _nfs_cluster_dir _zip_cluster_dir _script_dir
     return 1 2>/dev/null || exit 1
 fi
 
