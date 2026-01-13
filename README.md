@@ -5,6 +5,9 @@ A collection of cross-platform shell scripts for Kubernetes/OpenShift cluster ma
 ## Scripts
 
 - **`kube-setup.sh`** - Mount NFS-shared OpenShift cluster credentials and export them as environment variables
+- **`forklift-install.sh`** - Install Forklift operator on a Kubernetes/OpenShift cluster
+- **`forklift-cleanup.sh`** - Remove Forklift operator from a cluster
+- **`forklift-images.sh`** - Manage ForkliftController FQIN (container) images
 
 ---
 
@@ -70,6 +73,9 @@ source ~/.bashrc  # or source ~/.zshrc
 | `--cleanup` | Unset all exported variables and unmount NFS |
 | `--forklift` | Install Forklift operator (assumes already logged in via kubectl) |
 | `--forklift-cleanup` | Remove Forklift operator (assumes already logged in via kubectl) |
+| `--forklift-images` | List ForkliftController FQIN images |
+| `--forklift-images-set <image>` | Set a specific FQIN image (auto-detects field from image name) |
+| `--forklift-images-clear` | Clear all FQIN images from ForkliftController |
 | `--help`, `-h` | Show help message |
 
 ## Usage
@@ -90,6 +96,15 @@ kube-setup --forklift
 
 # Remove Forklift operator (assumes already logged in)
 kube-setup --forklift-cleanup
+
+# List ForkliftController FQIN images
+kube-setup --forklift-images
+
+# Set a specific FQIN image
+kube-setup --forklift-images-set quay.io/kubev2v/forklift-controller:latest
+
+# Clear all FQIN images
+kube-setup --forklift-images-clear
 
 # Cleanup
 kube-setup --cleanup
@@ -146,6 +161,74 @@ CLUSTER=<cluster-name> kube-setup --login
 
 # kubectl now uses the cluster
 kubectl get nodes
+```
+
+---
+
+# forklift-images.sh
+
+A script to manage ForkliftController FQIN (Fully Qualified Image Name) images.
+
+## Overview
+
+This script allows you to:
+- List currently configured FQIN images
+- Set specific container images for Forklift components
+- Clear all custom FQIN images (revert to defaults)
+
+## Usage
+
+```bash
+# List current FQIN images
+./forklift-images.sh
+./forklift-images.sh --list
+
+# Clear all FQIN images
+./forklift-images.sh --clear
+
+# Set a specific image (auto-detects field from image name)
+./forklift-images.sh --set quay.io/kubev2v/forklift-controller:latest
+./forklift-images.sh --set quay.io/kubev2v/forklift-api:v2.6.0
+./forklift-images.sh --set quay.io/kubev2v/forklift-virt-v2v:dev
+```
+
+## Supported Images
+
+The script automatically maps image names to their corresponding FQIN fields:
+
+| Image Name | FQIN Field |
+|------------|------------|
+| `forklift-controller` | `controller_image_fqin` |
+| `forklift-api` | `api_image_fqin` |
+| `forklift-validation` | `validation_image_fqin` |
+| `forklift-console-plugin` | `ui_plugin_image_fqin` |
+| `forklift-must-gather` | `must_gather_image_fqin` |
+| `forklift-virt-v2v` | `virt_v2v_image_fqin` |
+| `forklift-cli-download` | `cli_download_image_fqin` |
+| `populator-controller` | `populator_controller_image_fqin` |
+| `ovirt-populator` | `populator_ovirt_image_fqin` |
+| `openstack-populator` | `populator_openstack_image_fqin` |
+| `vsphere-xcopy-volume-populator` | `populator_vsphere_xcopy_volume_image_fqin` |
+| `forklift-ova-provider-server` | `ova_provider_server_fqin` |
+| `forklift-ova-proxy` | `ova_proxy_fqin` |
+| `forklift-hyperv-provider-server` | `hyperv_provider_server_fqin` |
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NAMESPACE` | `konveyor-forklift` | Namespace containing ForkliftController |
+| `CONTROLLER_NAME` | `forklift-controller` | Name of the ForkliftController resource |
+
+## Integration with kube-setup
+
+The script is integrated with `kube-setup.sh`:
+
+```bash
+# Via kube-setup (after logging in)
+kube-setup --forklift-images
+kube-setup --forklift-images-set quay.io/kubev2v/forklift-controller:dev
+kube-setup --forklift-images-clear
 ```
 
 ---

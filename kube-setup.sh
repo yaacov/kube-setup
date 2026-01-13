@@ -18,8 +18,17 @@ _setup_cluster_login=0
 _setup_cluster_cleanup=0
 _setup_cluster_forklift=0
 _setup_cluster_forklift_cleanup=0
+_setup_cluster_forklift_images=""
+_setup_cluster_forklift_images_arg=""
 
+_skip_next=0
+_arg_index=0
 for _arg in "$@"; do
+    _arg_index=$((_arg_index + 1))
+    if [ "$_skip_next" = "1" ]; then
+        _skip_next=0
+        continue
+    fi
     case "$_arg" in
         --login)
             _setup_cluster_login=1
@@ -33,6 +42,21 @@ for _arg in "$@"; do
         --forklift-cleanup)
             _setup_cluster_forklift_cleanup=1
             ;;
+        --forklift-images)
+            _setup_cluster_forklift_images="list"
+            ;;
+        --forklift-images-clear)
+            _setup_cluster_forklift_images="clear"
+            ;;
+        --forklift-images-set)
+            _setup_cluster_forklift_images="set"
+            # Get next argument as the image
+            _next_arg=$(eval "echo \${$((_arg_index + 1))}")
+            if [ -n "$_next_arg" ] && [ "${_next_arg#-}" = "$_next_arg" ]; then
+                _setup_cluster_forklift_images_arg="$_next_arg"
+                _skip_next=1
+            fi
+            ;;
         --help|-h)
             echo "Usage: source $0 [--login] [--cleanup] [--forklift] [--forklift-cleanup]"
             echo ""
@@ -44,15 +68,19 @@ for _arg in "$@"; do
             echo "  MOUNT_DIR   - Mount point directory (default: ~/cluster-credentials)"
             echo ""
             echo "Flags:"
-            echo "  --login            - Also export KUBECONFIG to login to the cluster"
-            echo "  --cleanup          - Unset all variables and unmount NFS"
-            echo "  --forklift         - Install Forklift operator (assumes already logged in)"
-            echo "  --forklift-cleanup - Remove Forklift operator (assumes already logged in)"
-            echo "  --help, -h         - Show this help message"
+            echo "  --login                     Also export KUBECONFIG to login to the cluster"
+            echo "  --cleanup                   Unset all variables and unmount NFS"
+            echo "  --forklift                  Install Forklift operator"
+            echo "  --forklift-cleanup          Remove Forklift operator"
+            echo "  --forklift-images           List ForkliftController FQIN images"
+            echo "  --forklift-images-set IMG   Set a specific FQIN image"
+            echo "  --forklift-images-clear     Clear all FQIN images"
+            echo "  --help, -h                  Show this help message"
             return 0 2>/dev/null || exit 0
             ;;
     esac
 done
+unset _skip_next _arg_index _next_arg
 
 # Forklift-only flow (assumes already logged in, no env vars set/unset)
 if [ "$_setup_cluster_forklift" = "1" ]; then
@@ -67,6 +95,7 @@ if [ "$_setup_cluster_forklift" = "1" ]; then
     fi
     # Cleanup only the temporary variables we created
     unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg
+    unset _setup_cluster_forklift_images _setup_cluster_forklift_images_arg
     unset _script_dir _forklift_script _forklift_exit
     return 0 2>/dev/null || exit 0
 fi
@@ -84,7 +113,40 @@ if [ "$_setup_cluster_forklift_cleanup" = "1" ]; then
     fi
     # Cleanup only the temporary variables we created
     unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg
+    unset _setup_cluster_forklift_images _setup_cluster_forklift_images_arg
     unset _script_dir _forklift_cleanup_script _forklift_cleanup_exit
+    return 0 2>/dev/null || exit 0
+fi
+
+# Forklift images flow (assumes already logged in, no env vars set/unset)
+if [ -n "$_setup_cluster_forklift_images" ]; then
+    _forklift_images_script="$_script_dir/forklift-images.sh"
+    if [ -f "$_forklift_images_script" ]; then
+        case "$_setup_cluster_forklift_images" in
+            list)
+                "$_forklift_images_script" --list
+                ;;
+            clear)
+                "$_forklift_images_script" --clear
+                ;;
+            set)
+                if [ -z "$_setup_cluster_forklift_images_arg" ]; then
+                    echo "Error: --forklift-images-set requires an image argument"
+                    echo "Usage: kube-setup --forklift-images-set <image>"
+                else
+                    "$_forklift_images_script" --set "$_setup_cluster_forklift_images_arg"
+                fi
+                ;;
+        esac
+        _forklift_images_exit=$?
+    else
+        echo "Error: forklift-images.sh not found at $_forklift_images_script"
+        _forklift_images_exit=1
+    fi
+    # Cleanup only the temporary variables we created
+    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg
+    unset _setup_cluster_forklift_images _setup_cluster_forklift_images_arg
+    unset _script_dir _forklift_images_script _forklift_images_exit
     return 0 2>/dev/null || exit 0
 fi
 
@@ -123,6 +185,8 @@ if [ "$_setup_cluster_cleanup" = "1" ]; then
     unset _setup_cluster_cleanup
     unset _setup_cluster_forklift
     unset _setup_cluster_forklift_cleanup
+    unset _setup_cluster_forklift_images
+    unset _setup_cluster_forklift_images_arg
     unset _arg
     unset _script_dir
     
@@ -134,14 +198,14 @@ fi
 if [ -z "$CLUSTER" ]; then
     echo "Error: CLUSTER environment variable is not set"
     echo "Usage: export CLUSTER=<cluster-name> && source $0"
-    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _script_dir
+    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir
     return 1 2>/dev/null || exit 1
 fi
 
 if [ -z "$NFS_SERVER" ]; then
     echo "Error: NFS_SERVER environment variable is not set"
     echo "Usage: export NFS_SERVER=<server>:<path> && source $0"
-    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _script_dir
+    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir
     return 1 2>/dev/null || exit 1
 fi
 
@@ -156,7 +220,7 @@ if [ ! -d "$MOUNT_DIR" ]; then
     mkdir -p "$MOUNT_DIR"
     if [ $? -ne 0 ]; then
         echo "Error: Failed to create mount directory $MOUNT_DIR"
-        unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _script_dir
+        unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir
         return 1 2>/dev/null || exit 1
     fi
 fi
@@ -167,7 +231,7 @@ if ! mount | grep -q " $MOUNT_DIR "; then
     sudo mount -t nfs "$NFS_SERVER" "$MOUNT_DIR"
     if [ $? -ne 0 ]; then
         echo "Error: Failed to mount NFS share"
-        unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _script_dir
+        unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir
         return 1 2>/dev/null || exit 1
     fi
     echo "NFS mounted successfully."
@@ -258,6 +322,7 @@ fi
 
 # Cleanup temporary variables
 unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg
+unset _setup_cluster_forklift_images _setup_cluster_forklift_images_arg
 unset _cluster_dir _auth_dir _kubeconfig_file _password_file _api_url_no_port _token_value
 unset _script_dir _forklift_script
 
