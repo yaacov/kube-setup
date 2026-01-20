@@ -1,0 +1,20 @@
+
+# Login to ROSE cluster
+CLUSTER=yzamir-01 kube-setup --login
+
+# Create demo namespace
+oc new-project demo
+
+# Create providers
+oc mtv create provider host --type openshift
+oc mtv create provider my-ec2 --type ec2 --ec2-region us-east-1 --username "$EC2_KEY" --password "$EC2_SECRET" --auto-target-credentials
+
+# Check inventory
+oc mtv get inventory vms my-ec2 
+
+# Create plan
+oc mtv create plan my-plan --source my-ec2 --vms rhel9-nitro,rhel9-xen
+oc mtv start plan my-plan
+
+# Monitor
+oc mtv get plan my-plan --vms --watch

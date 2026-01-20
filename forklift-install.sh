@@ -5,13 +5,19 @@
 # On vanilla Kubernetes, it also installs OLM (Operator Lifecycle Manager).
 # On OpenShift, OLM is already present, so it's skipped automatically.
 #
-# Usage: ./forklift-install.sh [--k8s] [--ocp] [--no-controller]
+# Architecture support:
+# - amd64: Uses official kubev2v index (default on x86_64)
+# - arm64: Uses yaacov/forklift-operator-index:devel-arm64 (default on ARM)
+#
+# Usage: ./forklift-install.sh [--k8s] [--ocp] [--arm64] [--amd64] [--no-controller]
 
 set -e
 
 # Parse flags
 FORCE_K8S=0
 FORCE_OCP=0
+FORCE_ARM64=0
+FORCE_AMD64=0
 NO_CONTROLLER=0
 
 for arg in "$@"; do
@@ -22,18 +28,26 @@ for arg in "$@"; do
         --ocp)
             FORCE_OCP=1
             ;;
+        --arm64)
+            FORCE_ARM64=1
+            ;;
+        --amd64)
+            FORCE_AMD64=1
+            ;;
         --no-controller)
             NO_CONTROLLER=1
             ;;
         --help|-h)
-            echo "Usage: $0 [--k8s] [--ocp] [--no-controller]"
+            echo "Usage: $0 [--k8s] [--ocp] [--arm64] [--amd64] [--no-controller]"
             echo ""
             echo "Installs Forklift operator on a Kubernetes or OpenShift cluster."
-            echo "The script auto-detects OpenShift and skips OLM installation."
+            echo "The script auto-detects OpenShift and architecture, skipping OLM on OpenShift."
             echo ""
             echo "Flags:"
             echo "  --k8s            Force Kubernetes mode (install OLM)"
             echo "  --ocp            Force OpenShift mode (skip OLM installation)"
+            echo "  --arm64          Force ARM64 architecture (use ARM operator index)"
+            echo "  --amd64          Force AMD64 architecture (use official index)"
             echo "  --no-controller  Skip creating the ForkliftController instance"
             echo "  --help, -h       Show this help message"
             exit 0
@@ -70,6 +84,43 @@ elif detect_openshift; then
     IS_OPENSHIFT=1
 fi
 
+# Detect architecture
+detect_architecture() {
+    # Try to get architecture from Kubernetes nodes first
+    local node_arch
+    node_arch=$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.architecture}' 2>/dev/null || true)
+    if [ -n "$node_arch" ]; then
+        echo "$node_arch"
+        return
+    fi
+    # Fall back to local machine architecture
+    local local_arch
+    local_arch=$(uname -m)
+    case "$local_arch" in
+        x86_64)
+            echo "amd64"
+            ;;
+        aarch64|arm64)
+            echo "arm64"
+            ;;
+        *)
+            echo "amd64"  # Default to amd64
+            ;;
+    esac
+}
+
+IS_ARM64=0
+if [ "$FORCE_ARM64" = "1" ]; then
+    IS_ARM64=1
+elif [ "$FORCE_AMD64" = "1" ]; then
+    IS_ARM64=0
+else
+    DETECTED_ARCH=$(detect_architecture)
+    if [ "$DETECTED_ARCH" = "arm64" ]; then
+        IS_ARM64=1
+    fi
+fi
+
 echo "=========================================="
 echo "Forklift Operator Installation"
 echo "=========================================="
@@ -79,6 +130,12 @@ if [ "$IS_OPENSHIFT" = "1" ]; then
     echo "Cluster type: OpenShift (OLM pre-installed)"
 else
     echo "Cluster type: Kubernetes"
+fi
+
+if [ "$IS_ARM64" = "1" ]; then
+    echo "Architecture: ARM64 (using yaacov ARM index)"
+else
+    echo "Architecture: AMD64 (using official kubev2v index)"
 fi
 echo ""
 
@@ -101,11 +158,60 @@ else
     echo ""
 fi
 
-# Install Forklift operator from kubev2v/forklift repository
+# Set operator index image based on architecture
+FORKLIFT_INDEX_AMD64="quay.io/kubev2v/forklift-operator-index:latest"
+FORKLIFT_INDEX_ARM64="quay.io/yaacov/forklift-operator-index:devel-arm64"
+
+if [ "$IS_ARM64" = "1" ]; then
+    FORKLIFT_INDEX_IMAGE="$FORKLIFT_INDEX_ARM64"
+else
+    FORKLIFT_INDEX_IMAGE="$FORKLIFT_INDEX_AMD64"
+fi
+
+# Install Forklift operator
 echo "Installing Forklift operator..."
-FORKLIFT_YAML_URL="https://raw.githubusercontent.com/kubev2v/forklift/main/operator/forklift-k8s.yaml"
-echo "  Source: $FORKLIFT_YAML_URL"
-kubectl apply -f "$FORKLIFT_YAML_URL"
+echo "  Index image: $FORKLIFT_INDEX_IMAGE"
+
+# Create namespace, CatalogSource, OperatorGroup, and Subscription
+cat << EOF | kubectl apply -f -
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: konveyor-forklift
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: CatalogSource
+metadata:
+  name: konveyor-forklift
+  namespace: konveyor-forklift
+spec:
+  displayName: Forklift Operator
+  publisher: Konveyor
+  sourceType: grpc
+  image: ${FORKLIFT_INDEX_IMAGE}
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: konveyor-forklift
+  namespace: konveyor-forklift
+spec:
+  targetNamespaces:
+    - konveyor-forklift
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: forklift-operator
+  namespace: konveyor-forklift
+spec:
+  channel: development
+  installPlanApproval: Automatic
+  name: forklift-operator
+  source: konveyor-forklift
+  sourceNamespace: konveyor-forklift
+EOF
 
 echo "Waiting for Forklift operator deployment..."
 while ! kubectl get deployment -n konveyor-forklift forklift-operator 2>/dev/null; do
@@ -139,8 +245,8 @@ spec:
   controller_log_level: 3
   
   # Container images (from quay.io/kubev2v/forklift-operator-index:latest)
-  controller_image_fqin: quay.io/kubev2v/forklift-controller:latest
-  api_image_fqin: quay.io/kubev2v/forklift-api:latest
+  #controller_image_fqin: quay.io/kubev2v/forklift-controller:latest
+  #api_image_fqin: quay.io/kubev2v/forklift-api:latest
   # validation_image_fqin: quay.io/kubev2v/forklift-validation:latest
   # ui_plugin_image_fqin: quay.io/kubev2v/forklift-console-plugin:latest
   # must_gather_image_fqin: quay.io/kubev2v/forklift-must-gather:latest

@@ -5,6 +5,7 @@ A collection of cross-platform shell scripts for Kubernetes/OpenShift cluster ma
 ## Scripts
 
 - **`kube-setup.sh`** - Load OpenShift cluster credentials from NFS or CI zip files and export them as environment variables
+- **`kubevirt-install.sh`** - Install KubeVirt and CDI on a Kubernetes cluster
 - **`forklift-install.sh`** - Install Forklift operator on a Kubernetes/OpenShift cluster
 - **`forklift-cleanup.sh`** - Remove Forklift operator from a cluster
 - **`forklift-images.sh`** - Manage ForkliftController FQIN (container) images
@@ -97,6 +98,7 @@ The script will extract the zip file to `$CI_EXTRACT_DIR` (default: `~/ci-creden
 |------|-------------|
 | `--login` | Export `KUBECONFIG` to login to the cluster (allows kubectl access) |
 | `--cleanup` | Unset all exported variables and unmount NFS / remove extracted files |
+| `--kubevirt` | Install KubeVirt and CDI (assumes already logged in via kubectl) |
 | `--forklift` | Install Forklift operator (assumes already logged in via kubectl) |
 | `--forklift-cleanup` | Remove Forklift operator (assumes already logged in via kubectl) |
 | `--forklift-images` | List ForkliftController FQIN images |
@@ -116,6 +118,9 @@ CLUSTER=<cluster-name> kube-setup
 
 # Login to cluster (sets KUBECONFIG)
 CLUSTER=<cluster-name> kube-setup --login
+
+# Install KubeVirt and CDI (assumes already logged in)
+kube-setup --kubevirt
 
 # Install Forklift operator (assumes already logged in)
 kube-setup --forklift
@@ -205,6 +210,24 @@ CLUSTER=<cluster-name> kube-setup --login
 
 # kubectl now uses the cluster
 kubectl get nodes
+```
+
+## Sample VMs
+
+The repository includes sample VM definitions:
+
+- **`k8s-vm-amd64.yaml`** - Fedora VM for x86_64/amd64 architecture
+- **`k8s-vm-arm64.yaml`** - Fedora VM for ARM64/aarch64 architecture
+
+```bash
+# Create a VM (choose based on your cluster architecture)
+kubectl apply -f k8s-vm-amd64.yaml
+# or
+kubectl apply -f k8s-vm-arm64.yaml
+
+# Check VM status
+kubectl get vm
+kubectl get vmi
 ```
 
 ---

@@ -19,6 +19,7 @@ fi
 # Parse flags
 _setup_cluster_login=0
 _setup_cluster_cleanup=0
+_setup_cluster_kubevirt=0
 _setup_cluster_forklift=0
 _setup_cluster_forklift_cleanup=0
 _setup_cluster_forklift_images=""
@@ -38,6 +39,9 @@ for _arg in "$@"; do
             ;;
         --cleanup)
             _setup_cluster_cleanup=1
+            ;;
+        --kubevirt)
+            _setup_cluster_kubevirt=1
             ;;
         --forklift)
             _setup_cluster_forklift=1
@@ -61,7 +65,7 @@ for _arg in "$@"; do
             fi
             ;;
         --help|-h)
-            echo "Usage: source $0 [--login] [--cleanup] [--forklift] [--forklift-cleanup]"
+            echo "Usage: source $0 [--login] [--cleanup] [--kubevirt] [--forklift] [--forklift-cleanup]"
             echo ""
             echo "Environment variables (required):"
             echo "  CLUSTER     - Cluster name"
@@ -84,6 +88,7 @@ for _arg in "$@"; do
             echo "Flags:"
             echo "  --login                     Also export KUBECONFIG to login to the cluster"
             echo "  --cleanup                   Unset all variables and unmount NFS / remove extracted files"
+            echo "  --kubevirt                  Install KubeVirt and CDI"
             echo "  --forklift                  Install Forklift operator"
             echo "  --forklift-cleanup          Remove Forklift operator"
             echo "  --forklift-images           List ForkliftController FQIN images"
@@ -95,6 +100,24 @@ for _arg in "$@"; do
     esac
 done
 unset _skip_next _arg_index _next_arg
+
+# KubeVirt-only flow (assumes already logged in, no env vars set/unset)
+if [ "$_setup_cluster_kubevirt" = "1" ]; then
+    _kubevirt_script="$_script_dir/kubevirt-install.sh"
+    if [ -f "$_kubevirt_script" ]; then
+        echo "Running KubeVirt installation..."
+        "$_kubevirt_script"
+        _kubevirt_exit=$?
+    else
+        echo "Error: kubevirt-install.sh not found at $_kubevirt_script"
+        _kubevirt_exit=1
+    fi
+    # Cleanup only the temporary variables we created
+    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg
+    unset _setup_cluster_forklift_images _setup_cluster_forklift_images_arg
+    unset _script_dir _kubevirt_script _kubevirt_exit
+    return 0 2>/dev/null || exit 0
+fi
 
 # Forklift-only flow (assumes already logged in, no env vars set/unset)
 if [ "$_setup_cluster_forklift" = "1" ]; then
@@ -108,7 +131,7 @@ if [ "$_setup_cluster_forklift" = "1" ]; then
         _forklift_exit=1
     fi
     # Cleanup only the temporary variables we created
-    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg
+    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg
     unset _setup_cluster_forklift_images _setup_cluster_forklift_images_arg
     unset _script_dir _forklift_script _forklift_exit
     return 0 2>/dev/null || exit 0
@@ -126,7 +149,7 @@ if [ "$_setup_cluster_forklift_cleanup" = "1" ]; then
         _forklift_cleanup_exit=1
     fi
     # Cleanup only the temporary variables we created
-    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg
+    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg
     unset _setup_cluster_forklift_images _setup_cluster_forklift_images_arg
     unset _script_dir _forklift_cleanup_script _forklift_cleanup_exit
     return 0 2>/dev/null || exit 0
@@ -158,7 +181,7 @@ if [ -n "$_setup_cluster_forklift_images" ]; then
         _forklift_images_exit=1
     fi
     # Cleanup only the temporary variables we created
-    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg
+    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg
     unset _setup_cluster_forklift_images _setup_cluster_forklift_images_arg
     unset _script_dir _forklift_images_script _forklift_images_exit
     return 0 2>/dev/null || exit 0
@@ -207,6 +230,7 @@ if [ "$_setup_cluster_cleanup" = "1" ]; then
     # Cleanup temporary variables
     unset _setup_cluster_login
     unset _setup_cluster_cleanup
+    unset _setup_cluster_kubevirt
     unset _setup_cluster_forklift
     unset _setup_cluster_forklift_cleanup
     unset _setup_cluster_forklift_images
@@ -222,7 +246,7 @@ fi
 if [ -z "$CLUSTER" ]; then
     echo "Error: CLUSTER environment variable is not set"
     echo "Usage: export CLUSTER=<cluster-name> && source $0"
-    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir
+    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir
     return 1 2>/dev/null || exit 1
 fi
 
@@ -241,7 +265,7 @@ if [ -n "$NFS_SERVER" ]; then
         mkdir -p "$MOUNT_DIR"
         if [ $? -ne 0 ]; then
             echo "Error: Failed to create mount directory $MOUNT_DIR"
-            unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir
+            unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir
             return 1 2>/dev/null || exit 1
         fi
     fi
@@ -252,7 +276,7 @@ if [ -n "$NFS_SERVER" ]; then
         sudo mount -t nfs "$NFS_SERVER" "$MOUNT_DIR"
         if [ $? -ne 0 ]; then
             echo "Error: Failed to mount NFS share"
-            unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir
+            unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir
             return 1 2>/dev/null || exit 1
         fi
         echo "NFS mounted successfully."
@@ -285,7 +309,7 @@ if [ -n "$CI_ZIP_FILE" ]; then
         # Verify unzip is available
         if ! command -v unzip >/dev/null 2>&1; then
             echo "Error: unzip command not found"
-            unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir
+            unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir
             return 1 2>/dev/null || exit 1
         fi
         
@@ -298,7 +322,7 @@ if [ -n "$CI_ZIP_FILE" ]; then
         mkdir -p "$CI_EXTRACT_DIR"
         if [ $? -ne 0 ]; then
             echo "Error: Failed to create extraction directory $CI_EXTRACT_DIR"
-            unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir
+            unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir
             return 1 2>/dev/null || exit 1
         fi
         
@@ -307,7 +331,7 @@ if [ -n "$CI_ZIP_FILE" ]; then
         unzip -o -q "$CI_ZIP_FILE" -d "$CI_EXTRACT_DIR"
         if [ $? -ne 0 ]; then
             echo "Error: Failed to extract CI zip file"
-            unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir
+            unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir
             return 1 2>/dev/null || exit 1
         fi
         echo "CI zip file extracted successfully."
@@ -338,7 +362,7 @@ else
             # Verify unzip is available
             if ! command -v unzip >/dev/null 2>&1; then
                 echo "Error: unzip command not found"
-                unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir _zip_cluster_dir _found_zip
+                unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir _zip_cluster_dir _found_zip
                 return 1 2>/dev/null || exit 1
             fi
             
@@ -351,7 +375,7 @@ else
             mkdir -p "$CI_EXTRACT_DIR"
             if [ $? -ne 0 ]; then
                 echo "Error: Failed to create extraction directory $CI_EXTRACT_DIR"
-                unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir _zip_cluster_dir _found_zip
+                unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir _zip_cluster_dir _found_zip
                 return 1 2>/dev/null || exit 1
             fi
             
@@ -360,7 +384,7 @@ else
             unzip -o -q "$_found_zip" -d "$CI_EXTRACT_DIR"
             if [ $? -ne 0 ]; then
                 echo "Error: Failed to extract zip file"
-                unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir _zip_cluster_dir _found_zip
+                unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir _zip_cluster_dir _found_zip
                 return 1 2>/dev/null || exit 1
             fi
             echo "Zip file extracted successfully."
@@ -391,7 +415,7 @@ if [ -z "$_cluster_dir" ]; then
     if [ -d "$DOWNLOADS_DIR" ]; then
         echo "  Checked Downloads: $DOWNLOADS_DIR/$CLUSTER*.zip (not found)"
     fi
-    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _nfs_cluster_dir _zip_cluster_dir _script_dir
+    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _nfs_cluster_dir _zip_cluster_dir _script_dir
     return 1 2>/dev/null || exit 1
 fi
 unset _nfs_cluster_dir _zip_cluster_dir
@@ -400,7 +424,7 @@ unset _nfs_cluster_dir _zip_cluster_dir
 _auth_dir="$_cluster_dir/auth"
 if [ ! -d "$_auth_dir" ]; then
     echo "Error: Auth directory not found: $_auth_dir"
-    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _auth_dir _nfs_cluster_dir _zip_cluster_dir _script_dir
+    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _auth_dir _nfs_cluster_dir _zip_cluster_dir _script_dir
     return 1 2>/dev/null || exit 1
 fi
 
@@ -410,13 +434,13 @@ _password_file="$_auth_dir/kubeadmin-password"
 
 if [ ! -f "$_kubeconfig_file" ]; then
     echo "Error: kubeconfig file not found: $_kubeconfig_file"
-    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _auth_dir _kubeconfig_file _password_file _script_dir
+    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _auth_dir _kubeconfig_file _password_file _script_dir
     return 1 2>/dev/null || exit 1
 fi
 
 if [ ! -f "$_password_file" ]; then
     echo "Error: kubeadmin-password file not found: $_password_file"
-    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _auth_dir _kubeconfig_file _password_file _script_dir
+    unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _auth_dir _kubeconfig_file _password_file _script_dir
     return 1 2>/dev/null || exit 1
 fi
 
@@ -431,7 +455,7 @@ if [ -z "$_token_value" ]; then
     # No token in kubeconfig - get one using kubectl create token
     if ! command -v kubectl >/dev/null 2>&1; then
         echo "Error: kubectl not found (requires kubectl 1.24+)"
-        unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _auth_dir _kubeconfig_file _password_file _script_dir
+        unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _auth_dir _kubeconfig_file _password_file _script_dir
         return 1 2>/dev/null || exit 1
     fi
     
@@ -443,7 +467,7 @@ if [ -z "$_token_value" ]; then
         echo "Error: Could not obtain SA token"
         echo "  $_token_value"
         echo "  Note: Requires kubectl 1.24+"
-        unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _auth_dir _kubeconfig_file _password_file _token_value _script_dir
+        unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _auth_dir _kubeconfig_file _password_file _token_value _script_dir
         return 1 2>/dev/null || exit 1
     fi
     
@@ -468,7 +492,7 @@ if [ "$_setup_cluster_login" = "1" ]; then
 fi
 
 # Cleanup temporary variables
-unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg
+unset _setup_cluster_login _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg
 unset _setup_cluster_forklift_images _setup_cluster_forklift_images_arg
 unset _cluster_dir _auth_dir _kubeconfig_file _password_file _api_url_no_port _token_value
 unset _script_dir _forklift_script
