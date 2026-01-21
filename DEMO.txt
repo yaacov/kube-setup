@@ -11,6 +11,14 @@ EC2_REGION=us-east-1 ./setup-aws-ec2.sh
 # Get vms
 aws ec2 describe-instances --query 'Reservations[*].Instances[*].[InstanceId,InstanceType,State.Name,Tags[?Key==`Name`].Value|[0]]' --output table
 
+# Find snapshots where forklift.konveyor.io/vmID tag exists
+aws ec2 describe-snapshots \
+  --filters "Name=tag-key,Values=forklift.konveyor.io/vmID"
+
+# Find volumes where forklift.konveyor.io/vmID tag exists
+aws ec2 describe-volumes \
+  --filters "Name=tag-key,Values=forklift.konveyor.io/vmID"
+  
 ###
 # login to ROSA AWS
 
