@@ -8,6 +8,18 @@ CLUSTER=yzamir-01 kube-setup --forklift
 # Setup some machine
 EC2_REGION=us-east-1 ./setup-aws-ec2.sh
 
+# Get vms
+aws ec2 describe-instances --query 'Reservations[*].Instances[*].[InstanceId,InstanceType,State.Name,Tags[?Key==`Name`].Value|[0]]' --output table
+
+###
+# login to ROSA AWS
+
+export AWS_ACCESS_KEY_ID=$(oc get secret aws-creds -n kube-system -o jsonpath='{.data.aws_access_key_id}' | base64 -d) && \
+export AWS_SECRET_ACCESS_KEY=$(oc get secret aws-creds -n kube-system -o jsonpath='{.data.aws_secret_access_key}' | base64 -d) && \
+export AWS_DEFAULT_REGION=us-east-1 && \
+aws sts get-caller-identity
+###
+
 # Create demo namespace
 oc new-project demo
 
