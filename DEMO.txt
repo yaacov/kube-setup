@@ -2,6 +2,12 @@
 # Login to ROSE cluster
 CLUSTER=yzamir-01 kube-setup --login
 
+# Install forklift
+CLUSTER=yzamir-01 kube-setup --forklift
+
+# Setup some machine
+EC2_REGION=us-east-1 ./setup-aws-ec2.sh
+
 # Create demo namespace
 oc new-project demo
 

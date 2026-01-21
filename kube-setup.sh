@@ -74,11 +74,11 @@ for _arg in "$@"; do
             echo "  NFS_SERVER  - NFS server address (e.g., server:/path)"
             echo "  CI_ZIP_FILE - Path to CI zip file containing cluster credentials"
             echo "                (zip structure: home/jenkins/cnv-qe.rhood.us/<CLUSTER>/auth/)"
+            echo "                If empty, auto-detects <CLUSTER>*.zip in DOWNLOADS_DIR"
             echo ""
             echo "  Note: Cluster lookup order:"
             echo "        1. NFS mount directory"
-            echo "        2. CI zip extracted directory"
-            echo "        3. Downloads directory (auto-extracts <cluster>*.zip if found)"
+            echo "        2. CI zip extracted directory (auto-extracts from Downloads if CI_ZIP_FILE empty)"
             echo ""
             echo "Environment variables (optional):"
             echo "  MOUNT_DIR       - NFS mount point directory (default: ~/cluster-credentials)"
@@ -296,6 +296,17 @@ fi
 # Set default DOWNLOADS_DIR if not set
 if [ -z "$DOWNLOADS_DIR" ]; then
     DOWNLOADS_DIR="$HOME/Downloads"
+fi
+
+# Auto-detect CI_ZIP_FILE from Downloads if not set
+if [ -z "$CI_ZIP_FILE" ] && [ -d "$DOWNLOADS_DIR" ]; then
+    # Look for zip file matching <cluster-name>*.zip pattern (case-insensitive)
+    _auto_zip=$(find "$DOWNLOADS_DIR" -maxdepth 1 -type f -iname "$CLUSTER*.zip" 2>/dev/null | head -1)
+    if [ -n "$_auto_zip" ]; then
+        echo "Auto-detected zip file from Downloads: $_auto_zip"
+        CI_ZIP_FILE="$_auto_zip"
+    fi
+    unset _auto_zip
 fi
 
 # Extract CI zip file if CI_ZIP_FILE is set
