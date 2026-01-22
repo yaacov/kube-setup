@@ -1,28 +1,19 @@
 apiVersion: kubevirt.io/v1
 kind: VirtualMachine
 metadata:
-  name: fedora-vm
+  name: fedora-vm-arm
 spec:
   runStrategy: Always
-  dataVolumeTemplates:
-    - metadata:
-        name: fedora-cloud-dv
-      spec:
-        source:
-          http:
-            url: "https://download.fedoraproject.org/pub/fedora/linux/releases/39/Cloud/x86_64/images/Fedora-Cloud-Base-39-1.5.x86_64.qcow2"
-        pvc:
-          accessModes:
-            - ReadWriteOnce
-          resources:
-            requests:
-              storage: 10Gi
   template:
     metadata:
       labels:
-        kubevirt.io/vm: fedora-vm
+        kubevirt.io/vm: fedora-vm-arm
     spec:
       domain:
+        cpu:
+          model: host-passthrough
+        machine:
+          type: virt
         devices:
           disks:
             - name: datavolumedisk
@@ -33,18 +24,19 @@ spec:
                 bus: virtio
           interfaces:
             - name: default
-              bridge: {}
+              masquerade: {}
         resources:
           requests:
             memory: 2Gi
             cpu: 2
+      architecture: arm64
       networks:
         - name: default
           pod: {}
       volumes:
         - name: datavolumedisk
           dataVolume:
-            name: fedora-cloud-dv
+            name: fedora-cloud-arm-dv
         - name: cloudinitdisk
           cloudInitNoCloud:
             userData: |

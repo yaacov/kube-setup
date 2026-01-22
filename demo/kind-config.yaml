@@ -1,0 +1,39 @@
+# Kind cluster configuration for KubeVirt
+# Usage: kind create cluster --name <name> --config kind-config.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    # Extra port mappings for accessing VMs
+    extraPortMappings:
+      # NodePort range for services
+      - containerPort: 30000
+        hostPort: 30000
+        protocol: TCP
+      - containerPort: 30001
+        hostPort: 30001
+        protocol: TCP
+      - containerPort: 30002
+        hostPort: 30002
+        protocol: TCP
+    # Mount additional storage for VM disks (optional)
+    # extraMounts:
+    #   - hostPath: /tmp/kind-storage
+    #     containerPath: /var/local-path-provisioner
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            # Allow more pods per node
+            max-pods: "200"
+            # Increase eviction thresholds for dev clusters
+            eviction-hard: "memory.available<100Mi,nodefs.available<5%"
+# Networking configuration
+networking:
+  # Pod subnet - using larger range
+  podSubnet: "10.244.0.0/16"
+  # Service subnet
+  serviceSubnet: "10.96.0.0/16"
+  # Disable default CNI to potentially use a different one
+  # disableDefaultCNI: true

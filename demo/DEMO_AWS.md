@@ -1,12 +1,14 @@
+# AWS EC2 Migration Demo
+# Run all commands from repo root: cd /path/to/kube-setup
 
-# Login to ROSE cluster
+# Login to ROSA cluster
 CLUSTER=yzamir-01 kube-setup --login
 
 # Install forklift
 CLUSTER=yzamir-01 kube-setup --forklift
 
-# Setup some machine
-EC2_REGION=us-east-1 ./setup-aws-ec2.sh
+# Setup AWS EC2 infrastructure
+EC2_REGION=us-east-1 demo/setup-aws-ec2.sh
 
 # Get vms
 aws ec2 describe-instances --query 'Reservations[*].Instances[*].[InstanceId,InstanceType,State.Name,Tags[?Key==`Name`].Value|[0]]' --output table
