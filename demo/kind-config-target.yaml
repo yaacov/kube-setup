@@ -1,0 +1,25 @@
+# Kind cluster configuration for target cluster (KubeVirt + Forklift)
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30000
+        hostPort: 30010
+        protocol: TCP
+      - containerPort: 30001
+        hostPort: 30011
+        protocol: TCP
+      - containerPort: 30002
+        hostPort: 30012
+        protocol: TCP
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            max-pods: "200"
+            eviction-hard: "memory.available<100Mi,nodefs.available<5%"
+networking:
+  podSubnet: "10.245.0.0/16"
+  serviceSubnet: "10.97.0.0/16"

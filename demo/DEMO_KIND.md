@@ -6,11 +6,24 @@ This demo sets up two Kind clusters to demonstrate VM migration with Forklift:
 
 > **Note**: Run all commands from the repo root directory.
 
+## Platform Support
+
+| Platform | KubeVirt VMs | Notes |
+|----------|--------------|-------|
+| Linux x86_64 with KVM | Yes | Full support |
+| Linux ARM64 with KVM | Yes | Full support (AWS Graviton, Ampere, etc.) |
+| Mac Intel (Docker Desktop) | Yes | Software emulation (slower) |
+| Mac Apple Silicon (Docker Desktop) | **No** | Docker Desktop doesn't provide KVM to containers |
+
+> **Apple Silicon Users**: KubeVirt on ARM64 requires KVM hardware virtualization, which Docker Desktop doesn't expose. Use a Linux VM with nested virtualization (UTM, Parallels), or a remote ARM64 server with KVM support.
+
+---
+
 ## Prerequisites
 
-### Docker Desktop Resources
+### Docker Desktop Resources (Linux/Intel Mac only)
 
-For Mac, configure in **Docker Desktop → Settings → Resources**:
+Configure in **Docker Desktop → Settings → Resources**:
 
 | Resource | Minimum | Recommended |
 |----------|---------|-------------|
@@ -24,18 +37,30 @@ For Mac, configure in **Docker Desktop → Settings → Resources**:
 
 ## Step 1: Create Kind Clusters
 
-**Option A**: Simple (uses defaults)
+### Delete existing clusters (if any)
 
 ```bash
-kind create cluster --name source-cluster
-kind create cluster --name target-cluster
+kind delete cluster --name source-cluster
+kind delete cluster --name target-cluster
 ```
 
-**Option B**: With custom config (extra ports, settings)
+### Fix Docker network MTU (required for KubeVirt on Docker Desktop)
+
+Docker Desktop uses MTU 65535 which is invalid for KubeVirt tap devices.
+Recreate the `kind` network with proper MTU **before** creating clusters:
 
 ```bash
-kind create cluster --name source-cluster --config demo/kind-config.yaml
-kind create cluster --name target-cluster --config demo/kind-config.yaml
+docker network rm kind 2>/dev/null
+docker network create --driver bridge --opt com.docker.network.driver.mtu=1500 kind
+```
+
+### Create clusters
+
+Each cluster has its own config with different port mappings to avoid conflicts.
+
+```bash
+kind create cluster --name source-cluster --config demo/kind-config-source.yaml
+kind create cluster --name target-cluster --config demo/kind-config-target.yaml
 ```
 
 ---
@@ -54,14 +79,7 @@ kubectl config use-context kind-source-cluster
 ./kubevirt-install.sh
 ```
 
-### Enable emulation (required for Mac - no KVM)
-
-```bash
-kubectl patch kubevirt kubevirt -n kubevirt --type=merge \
-  -p '{"spec":{"configuration":{"developerConfiguration":{"useEmulation":true}}}}'
-kubectl delete pods -n kubevirt -l kubevirt.io=virt-handler
-sleep 30
-```
+> The script automatically detects if the cluster lacks KVM support and enables software emulation.
 
 ### Create the DataVolume
 
@@ -117,14 +135,7 @@ kubectl config use-context kind-target-cluster
 ./kubevirt-install.sh
 ```
 
-### Enable emulation
-
-```bash
-kubectl patch kubevirt kubevirt -n kubevirt --type=merge \
-  -p '{"spec":{"configuration":{"developerConfiguration":{"useEmulation":true}}}}'
-kubectl delete pods -n kubevirt -l kubevirt.io=virt-handler
-sleep 30
-```
+> The script automatically detects if the cluster lacks KVM support and enables software emulation.
 
 ### Install Forklift
 

@@ -11,7 +11,7 @@ spec:
     spec:
       domain:
         cpu:
-          model: host-passthrough
+          cores: 2
         machine:
           type: virt
         devices:
@@ -28,7 +28,6 @@ spec:
         resources:
           requests:
             memory: 2Gi
-            cpu: 2
       architecture: arm64
       networks:
         - name: default

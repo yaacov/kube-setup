@@ -106,6 +106,25 @@ kubectl wait kubevirt -n kubevirt kubevirt --for condition=Available=True --time
 echo "KubeVirt installed successfully."
 echo ""
 
+# Check if cluster nodes have KVM support and enable emulation if not
+echo "Checking cluster KVM support..."
+# Wait for virt-handler to register device plugin
+sleep 10
+KVM_AVAILABLE=$(kubectl get nodes -o jsonpath='{.items[0].status.allocatable.devices\.kubevirt\.io/kvm}' 2>/dev/null)
+if [ -z "$KVM_AVAILABLE" ] || [ "$KVM_AVAILABLE" = "0" ]; then
+    echo "No KVM support detected on cluster nodes - enabling software emulation..."
+    kubectl patch kubevirt kubevirt -n kubevirt --type=merge \
+        -p '{"spec":{"configuration":{"developerConfiguration":{"useEmulation":true}}}}'
+    echo "Restarting virt-handler pods..."
+    kubectl delete pods -n kubevirt -l kubevirt.io=virt-handler
+    echo "Waiting for virt-handler to restart..."
+    sleep 30
+    echo "Software emulation enabled."
+else
+    echo "KVM support detected on cluster nodes (kvm devices: $KVM_AVAILABLE)."
+fi
+echo ""
+
 # Install CDI if not skipped
 if [ "$NO_CDI" = "0" ]; then
     echo "=========================================="
@@ -172,12 +191,10 @@ if [ "$NO_CDI" = "0" ]; then
     echo "  kubectl get cdi -n cdi"
 fi
 echo ""
-echo "NOTE: If running on macOS or without KVM support (e.g., Kind on Mac),"
-echo "      VMs will fail to schedule with 'Insufficient devices.kubevirt.io/kvm'."
-echo "      Enable software emulation with:"
-echo ""
-echo "  kubectl patch kubevirt kubevirt -n kubevirt --type=merge \\"
-echo "    -p '{\"spec\":{\"configuration\":{\"developerConfiguration\":{\"useEmulation\":true}}}}'"
-echo ""
-echo "      Then restart virt-handler: kubectl delete pods -n kubevirt -l kubevirt.io=virt-handler"
+if [ -z "$KVM_AVAILABLE" ] || [ "$KVM_AVAILABLE" = "0" ]; then
+    echo "NOTE: Software emulation was automatically enabled (no KVM on cluster nodes)."
+    echo "      VMs will run slower but work without hardware virtualization support."
+else
+    echo "NOTE: KVM hardware virtualization is available on this cluster."
+fi
 echo ""
