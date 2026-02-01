@@ -12,8 +12,34 @@
 
 set -e
 
-NAMESPACE="${NAMESPACE:-konveyor-forklift}"
 CONTROLLER_NAME="${CONTROLLER_NAME:-forklift-controller}"
+
+# Auto-detect namespace if not explicitly set
+# Check both konveyor-forklift and openshift-mtv namespaces
+detect_namespace() {
+    # If NAMESPACE is explicitly set, use it
+    if [ -n "${NAMESPACE:-}" ]; then
+        echo "$NAMESPACE"
+        return
+    fi
+    
+    # Check konveyor-forklift first
+    if kubectl get forkliftcontroller "$CONTROLLER_NAME" -n "konveyor-forklift" >/dev/null 2>&1; then
+        echo "konveyor-forklift"
+        return
+    fi
+    
+    # Check openshift-mtv
+    if kubectl get forkliftcontroller "$CONTROLLER_NAME" -n "openshift-mtv" >/dev/null 2>&1; then
+        echo "openshift-mtv"
+        return
+    fi
+    
+    # Default to konveyor-forklift if not found in either
+    echo "konveyor-forklift"
+}
+
+NAMESPACE="${NAMESPACE:-$(detect_namespace)}"
 
 # All known FQIN fields - format: "image_name:fqin_field"
 FQIN_MAPPINGS="
@@ -78,7 +104,8 @@ Options:
   --help, -h          Show this help message
 
 Environment Variables:
-  NAMESPACE           Namespace containing ForkliftController (default: konveyor-forklift)
+  NAMESPACE           Namespace containing ForkliftController (auto-detected from
+                      konveyor-forklift or openshift-mtv if not set)
   CONTROLLER_NAME     Name of the ForkliftController (default: forklift-controller)
 
 Supported Image Names:
