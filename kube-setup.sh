@@ -478,7 +478,7 @@ if [ -z "$_token_value" ]; then
     
     # Use default SA in openshift-cluster-version namespace (has cluster-admin)
     echo "Getting token for SA default in openshift-cluster-version..."
-    _token_value=$(KUBECONFIG="$_kubeconfig_file" kubectl create token default -n openshift-cluster-version 2>&1)
+    _token_value=$(KUBECONFIG="$_kubeconfig_file" kubectl create token default -n openshift-cluster-version --duration=168h 2>&1)
     
     if [ $? -ne 0 ] || [ -z "$_token_value" ]; then
         echo "Error: Could not obtain SA token"
