@@ -356,8 +356,16 @@ if [ -n "$CI_ZIP_FILE" ]; then
 fi
 
 # Set zip cluster dir path (may exist from previous extraction)
-# Expected structure: home/jenkins/cnv-qe.rhood.us/<CLUSTER>/auth/
-_zip_cluster_dir="$CI_EXTRACT_DIR/home/jenkins/cnv-qe.rhood.us/$CLUSTER"
+# Expected structures:
+#   1. home/jenkins/<provider>/<CLUSTER>/auth/
+#   2. cluster-dirs/<provider>/<CLUSTER>/auth/
+# Auto-detect provider (e.g., cnv-qe.rhood.us, azure.cnv-qe.rhood.us, etc.)
+_zip_cluster_dir=""
+if [ -d "$CI_EXTRACT_DIR/home/jenkins" ]; then
+    _zip_cluster_dir=$(find "$CI_EXTRACT_DIR/home/jenkins" -maxdepth 2 -type d -name "$CLUSTER" 2>/dev/null | head -1)
+elif [ -d "$CI_EXTRACT_DIR/cluster-dirs" ]; then
+    _zip_cluster_dir=$(find "$CI_EXTRACT_DIR/cluster-dirs" -maxdepth 2 -type d -name "$CLUSTER" 2>/dev/null | head -1)
+fi
 
 # Find cluster directory: try NFS first, then ZIP, then Downloads
 _cluster_dir=""
@@ -405,9 +413,16 @@ else
                 return 1 2>/dev/null || exit 1
             fi
             echo "Zip file extracted successfully."
-            
+
+            # Re-search for the cluster directory in the newly extracted content
+            if [ -d "$CI_EXTRACT_DIR/home/jenkins" ]; then
+                _zip_cluster_dir=$(find "$CI_EXTRACT_DIR/home/jenkins" -maxdepth 2 -type d -name "$CLUSTER" 2>/dev/null | head -1)
+            elif [ -d "$CI_EXTRACT_DIR/cluster-dirs" ]; then
+                _zip_cluster_dir=$(find "$CI_EXTRACT_DIR/cluster-dirs" -maxdepth 2 -type d -name "$CLUSTER" 2>/dev/null | head -1)
+            fi
+
             # Re-check the zip cluster directory
-            if [ -d "$_zip_cluster_dir" ]; then
+            if [ -n "$_zip_cluster_dir" ] && [ -d "$_zip_cluster_dir" ]; then
                 echo "Found cluster in extracted zip: $_zip_cluster_dir"
                 _cluster_dir="$_zip_cluster_dir"
             fi
@@ -424,10 +439,14 @@ if [ -z "$_cluster_dir" ]; then
         echo "  Available clusters in NFS:"
         ls "$MOUNT_DIR" 2>/dev/null | head -20 | sed 's/^/    /'
     fi
-    if [ -d "$CI_EXTRACT_DIR/home/jenkins/cnv-qe.rhood.us" ]; then
+    if [ -d "$CI_EXTRACT_DIR/home/jenkins" ]; then
         echo "  Checked CI zip: $_zip_cluster_dir"
         echo "  Available clusters in CI zip:"
-        ls "$CI_EXTRACT_DIR/home/jenkins/cnv-qe.rhood.us" 2>/dev/null | head -20 | sed 's/^/    /'
+        find "$CI_EXTRACT_DIR/home/jenkins" -mindepth 2 -maxdepth 2 -type d -name auth 2>/dev/null | sed 's|/auth$||' | xargs -n1 basename 2>/dev/null | head -20 | sed 's/^/    /'
+    elif [ -d "$CI_EXTRACT_DIR/cluster-dirs" ]; then
+        echo "  Checked CI zip: $_zip_cluster_dir"
+        echo "  Available clusters in CI zip:"
+        find "$CI_EXTRACT_DIR/cluster-dirs" -mindepth 2 -maxdepth 2 -type d -name auth 2>/dev/null | sed 's|/auth$||' | xargs -n1 basename 2>/dev/null | head -20 | sed 's/^/    /'
     fi
     if [ -d "$DOWNLOADS_DIR" ]; then
         echo "  Checked Downloads: $DOWNLOADS_DIR/$CLUSTER*.zip (not found)"
