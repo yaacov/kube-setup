@@ -25,6 +25,8 @@ _setup_cluster_forklift_cleanup=0
 _setup_cluster_forklift_images=""
 _setup_cluster_forklift_images_arg=""
 _setup_cluster_login_default=0
+_setup_cluster_skip_nfs=0
+_setup_cluster_kubeconfig=0
 
 _skip_next=0
 _arg_index=0
@@ -41,6 +43,12 @@ for _arg in "$@"; do
         --login-default)
             _setup_cluster_login=1
             _setup_cluster_login_default=1
+            ;;
+        --skip-nfs)
+            _setup_cluster_skip_nfs=1
+            ;;
+        --kubeconfig)
+            _setup_cluster_kubeconfig=1
             ;;
         --cleanup)
             _setup_cluster_cleanup=1
@@ -84,6 +92,7 @@ for _arg in "$@"; do
             echo "  Note: Cluster lookup order:"
             echo "        1. NFS mount directory"
             echo "        2. CI zip extracted directory (auto-extracts from Downloads if CI_ZIP_FILE empty)"
+            echo "        3. Bare kubeconfig file in Downloads directory (--kubeconfig flag)"
             echo ""
             echo "Environment variables (optional):"
             echo "  MOUNT_DIR       - NFS mount point directory (default: ~/cluster-credentials)"
@@ -93,6 +102,8 @@ for _arg in "$@"; do
             echo "Flags:"
             echo "  --login                     Also export KUBECONFIG to login to the cluster"
             echo "  --login-default             Copy kubeconfig to ~/.kube/config for global login"
+            echo "  --skip-nfs                  Skip NFS mount entirely"
+            echo "  --kubeconfig                Use bare kubeconfig file from Downloads directory"
             echo "  --cleanup                   Unset all variables and unmount NFS / remove extracted files"
             echo "  --kubevirt                  Install KubeVirt and CDI"
             echo "  --forklift                  Install Forklift operator"
@@ -119,7 +130,7 @@ if [ "$_setup_cluster_kubevirt" = "1" ]; then
         _kubevirt_exit=1
     fi
     # Cleanup only the temporary variables we created
-    unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg
+    unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg
     unset _setup_cluster_forklift_images _setup_cluster_forklift_images_arg
     unset _script_dir _kubevirt_script _kubevirt_exit
     return 0 2>/dev/null || exit 0
@@ -137,7 +148,7 @@ if [ "$_setup_cluster_forklift" = "1" ]; then
         _forklift_exit=1
     fi
     # Cleanup only the temporary variables we created
-    unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg
+    unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg
     unset _setup_cluster_forklift_images _setup_cluster_forklift_images_arg
     unset _script_dir _forklift_script _forklift_exit
     return 0 2>/dev/null || exit 0
@@ -155,7 +166,7 @@ if [ "$_setup_cluster_forklift_cleanup" = "1" ]; then
         _forklift_cleanup_exit=1
     fi
     # Cleanup only the temporary variables we created
-    unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg
+    unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg
     unset _setup_cluster_forklift_images _setup_cluster_forklift_images_arg
     unset _script_dir _forklift_cleanup_script _forklift_cleanup_exit
     return 0 2>/dev/null || exit 0
@@ -187,7 +198,7 @@ if [ -n "$_setup_cluster_forklift_images" ]; then
         _forklift_images_exit=1
     fi
     # Cleanup only the temporary variables we created
-    unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg
+    unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg
     unset _setup_cluster_forklift_images _setup_cluster_forklift_images_arg
     unset _script_dir _forklift_images_script _forklift_images_exit
     return 0 2>/dev/null || exit 0
@@ -236,6 +247,8 @@ if [ "$_setup_cluster_cleanup" = "1" ]; then
     # Cleanup temporary variables
     unset _setup_cluster_login
     unset _setup_cluster_cleanup
+    unset _setup_cluster_skip_nfs
+    unset _setup_cluster_kubeconfig
     unset _setup_cluster_kubevirt
     unset _setup_cluster_forklift
     unset _setup_cluster_forklift_cleanup
@@ -252,7 +265,7 @@ fi
 if [ -z "$CLUSTER" ]; then
     echo "Error: CLUSTER environment variable is not set"
     echo "Usage: export CLUSTER=<cluster-name> && source $0"
-    unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir
+    unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir
     return 1 2>/dev/null || exit 1
 fi
 
@@ -271,23 +284,42 @@ if [ -n "$NFS_SERVER" ]; then
         mkdir -p "$MOUNT_DIR"
         if [ $? -ne 0 ]; then
             echo "Error: Failed to create mount directory $MOUNT_DIR"
-            unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir
+            unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir
             return 1 2>/dev/null || exit 1
         fi
     fi
     
     # Check if NFS is mounted, mount if not
-    if ! mount | grep -q " $MOUNT_DIR "; then
-        echo "Mounting NFS share $NFS_SERVER to $MOUNT_DIR..."
-        sudo mount -t nfs "$NFS_SERVER" "$MOUNT_DIR"
-        if [ $? -ne 0 ]; then
-            echo "Error: Failed to mount NFS share"
-            unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir
+    if [ "$_setup_cluster_skip_nfs" = "1" ]; then
+        echo "Skipping NFS mount (--skip-nfs)"
+    elif mount | grep -q " $MOUNT_DIR "; then
+        echo "NFS already mounted at $MOUNT_DIR"
+    else
+        # Quick reachability check before attempting mount
+        _nfs_host=$(echo "$NFS_SERVER" | cut -d: -f1)
+        _nfs_reachable=0
+        case "$(uname)" in
+            Darwin) ping -c 1 -t 3 "$_nfs_host" >/dev/null 2>&1 && _nfs_reachable=1 ;;
+            *)      ping -c 1 -W 3 "$_nfs_host" >/dev/null 2>&1 && _nfs_reachable=1 ;;
+        esac
+
+        if [ "$_nfs_reachable" = "1" ]; then
+            echo "Mounting NFS share $NFS_SERVER to $MOUNT_DIR..."
+            sudo mount -t nfs "$NFS_SERVER" "$MOUNT_DIR"
+            if [ $? -ne 0 ]; then
+                echo "Error: Failed to mount NFS share"
+                echo "  Hint: use --skip-nfs to bypass NFS, or --kubeconfig to use a kubeconfig from Downloads"
+                unset _nfs_host _nfs_reachable _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir
+                return 1 2>/dev/null || exit 1
+            fi
+            echo "NFS mounted successfully."
+        else
+            echo "Error: NFS server $_nfs_host is not reachable"
+            echo "  Hint: use --skip-nfs to bypass NFS, or --kubeconfig to use a kubeconfig from Downloads"
+            unset _nfs_host _nfs_reachable _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir
             return 1 2>/dev/null || exit 1
         fi
-        echo "NFS mounted successfully."
-    else
-        echo "NFS already mounted at $MOUNT_DIR"
+        unset _nfs_host _nfs_reachable
     fi
 fi
 
@@ -326,7 +358,7 @@ if [ -n "$CI_ZIP_FILE" ]; then
         # Verify unzip is available
         if ! command -v unzip >/dev/null 2>&1; then
             echo "Error: unzip command not found"
-            unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir
+            unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir
             return 1 2>/dev/null || exit 1
         fi
         
@@ -339,7 +371,7 @@ if [ -n "$CI_ZIP_FILE" ]; then
         mkdir -p "$CI_EXTRACT_DIR"
         if [ $? -ne 0 ]; then
             echo "Error: Failed to create extraction directory $CI_EXTRACT_DIR"
-            unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir
+            unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir
             return 1 2>/dev/null || exit 1
         fi
         
@@ -348,7 +380,7 @@ if [ -n "$CI_ZIP_FILE" ]; then
         unzip -o -q "$CI_ZIP_FILE" -d "$CI_EXTRACT_DIR"
         if [ $? -ne 0 ]; then
             echo "Error: Failed to extract CI zip file"
-            unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir
+            unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir
             return 1 2>/dev/null || exit 1
         fi
         echo "CI zip file extracted successfully."
@@ -367,67 +399,106 @@ elif [ -d "$CI_EXTRACT_DIR/cluster-dirs" ]; then
     _zip_cluster_dir=$(find "$CI_EXTRACT_DIR/cluster-dirs" -maxdepth 2 -type d -name "$CLUSTER" 2>/dev/null | head -1)
 fi
 
-# Find cluster directory: try NFS first, then ZIP, then Downloads
+# If --kubeconfig flag, use bare kubeconfig file from Downloads
 _cluster_dir=""
-if [ -n "$_nfs_cluster_dir" ] && [ -d "$_nfs_cluster_dir" ]; then
-    echo "Found cluster in NFS: $_nfs_cluster_dir"
-    _cluster_dir="$_nfs_cluster_dir"
-elif [ -n "$_zip_cluster_dir" ] && [ -d "$_zip_cluster_dir" ]; then
-    echo "Found cluster in CI zip: $_zip_cluster_dir"
-    _cluster_dir="$_zip_cluster_dir"
-else
-    # Try to find and extract zip file from Downloads directory
-    if [ -d "$DOWNLOADS_DIR" ]; then
-        # Look for zip file matching <cluster-name>*.zip pattern (case-insensitive)
-        _found_zip=$(find "$DOWNLOADS_DIR" -maxdepth 1 -type f -iname "$CLUSTER*.zip" 2>/dev/null | head -1)
-        
-        if [ -n "$_found_zip" ]; then
-            echo "Found cluster zip in Downloads: $_found_zip"
-            
-            # Verify unzip is available
-            if ! command -v unzip >/dev/null 2>&1; then
-                echo "Error: unzip command not found"
-                unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir _zip_cluster_dir _found_zip
-                return 1 2>/dev/null || exit 1
-            fi
-            
-            # Remove old extracted data and create fresh extraction directory
-            if [ -d "$CI_EXTRACT_DIR" ]; then
-                echo "Removing old extracted data from $CI_EXTRACT_DIR..."
-                rm -rf "$CI_EXTRACT_DIR"
-            fi
-            echo "Creating extraction directory: $CI_EXTRACT_DIR"
-            mkdir -p "$CI_EXTRACT_DIR"
-            if [ $? -ne 0 ]; then
-                echo "Error: Failed to create extraction directory $CI_EXTRACT_DIR"
-                unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir _zip_cluster_dir _found_zip
-                return 1 2>/dev/null || exit 1
-            fi
-            
-            # Extract the zip file
-            echo "Extracting zip file to $CI_EXTRACT_DIR..."
-            unzip -o -q "$_found_zip" -d "$CI_EXTRACT_DIR"
-            if [ $? -ne 0 ]; then
-                echo "Error: Failed to extract zip file"
-                unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir _zip_cluster_dir _found_zip
-                return 1 2>/dev/null || exit 1
-            fi
-            echo "Zip file extracted successfully."
+if [ "$_setup_cluster_kubeconfig" = "1" ]; then
+    if [ ! -d "$DOWNLOADS_DIR" ]; then
+        echo "Error: Downloads directory not found: $DOWNLOADS_DIR"
+        unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir _zip_cluster_dir
+        return 1 2>/dev/null || exit 1
+    fi
 
-            # Re-search for the cluster directory in the newly extracted content
-            if [ -d "$CI_EXTRACT_DIR/home/jenkins" ]; then
-                _zip_cluster_dir=$(find "$CI_EXTRACT_DIR/home/jenkins" -maxdepth 2 -type d -name "$CLUSTER" 2>/dev/null | head -1)
-            elif [ -d "$CI_EXTRACT_DIR/cluster-dirs" ]; then
-                _zip_cluster_dir=$(find "$CI_EXTRACT_DIR/cluster-dirs" -maxdepth 2 -type d -name "$CLUSTER" 2>/dev/null | head -1)
-            fi
+    _dl_kubeconfig=$(find "$DOWNLOADS_DIR" -maxdepth 1 -type f -name "kubeconfig" 2>/dev/null | head -1)
+    if [ -z "$_dl_kubeconfig" ]; then
+        echo "Error: No kubeconfig file found in $DOWNLOADS_DIR"
+        unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir _zip_cluster_dir
+        return 1 2>/dev/null || exit 1
+    fi
 
-            # Re-check the zip cluster directory
-            if [ -n "$_zip_cluster_dir" ] && [ -d "$_zip_cluster_dir" ]; then
-                echo "Found cluster in extracted zip: $_zip_cluster_dir"
-                _cluster_dir="$_zip_cluster_dir"
+    _dl_api_url=$(grep "server:" "$_dl_kubeconfig" | head -1 | awk '{print $2}' | tr -d '\r')
+    echo "Using kubeconfig from Downloads: $_dl_kubeconfig"
+    echo "  API URL: $_dl_api_url"
+
+    _dl_auth_dir="$CI_EXTRACT_DIR/cluster-dirs/downloads/$CLUSTER/auth"
+    mkdir -p "$_dl_auth_dir"
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to create directory $_dl_auth_dir"
+        unset _dl_kubeconfig _dl_api_url _dl_auth_dir
+        unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir _zip_cluster_dir
+        return 1 2>/dev/null || exit 1
+    fi
+
+    tr -d '\r' < "$_dl_kubeconfig" > "$_dl_auth_dir/kubeconfig"
+
+    _dl_password=$(find "$DOWNLOADS_DIR" -maxdepth 1 -type f -name "kubeadmin-password" 2>/dev/null | head -1)
+    if [ -n "$_dl_password" ]; then
+        cp "$_dl_password" "$_dl_auth_dir/kubeadmin-password"
+    else
+        echo "N/A" > "$_dl_auth_dir/kubeadmin-password"
+        echo "Note: kubeadmin-password not found in Downloads, using placeholder"
+    fi
+
+    _cluster_dir="$CI_EXTRACT_DIR/cluster-dirs/downloads/$CLUSTER"
+    echo "Kubeconfig set up from Downloads"
+    unset _dl_kubeconfig _dl_api_url _dl_auth_dir _dl_password
+fi
+
+# Find cluster directory: try NFS first, then ZIP, then Downloads zip
+if [ -z "$_cluster_dir" ]; then
+    if [ -n "$_nfs_cluster_dir" ] && [ -d "$_nfs_cluster_dir" ]; then
+        echo "Found cluster in NFS: $_nfs_cluster_dir"
+        _cluster_dir="$_nfs_cluster_dir"
+    elif [ -n "$_zip_cluster_dir" ] && [ -d "$_zip_cluster_dir" ]; then
+        echo "Found cluster in CI zip: $_zip_cluster_dir"
+        _cluster_dir="$_zip_cluster_dir"
+    else
+        # Try to find and extract zip file from Downloads directory
+        if [ -d "$DOWNLOADS_DIR" ]; then
+            _found_zip=$(find "$DOWNLOADS_DIR" -maxdepth 1 -type f -iname "$CLUSTER*.zip" 2>/dev/null | head -1)
+
+            if [ -n "$_found_zip" ]; then
+                echo "Found cluster zip in Downloads: $_found_zip"
+
+                if ! command -v unzip >/dev/null 2>&1; then
+                    echo "Error: unzip command not found"
+                    unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir _zip_cluster_dir _found_zip
+                    return 1 2>/dev/null || exit 1
+                fi
+
+                if [ -d "$CI_EXTRACT_DIR" ]; then
+                    echo "Removing old extracted data from $CI_EXTRACT_DIR..."
+                    rm -rf "$CI_EXTRACT_DIR"
+                fi
+                echo "Creating extraction directory: $CI_EXTRACT_DIR"
+                mkdir -p "$CI_EXTRACT_DIR"
+                if [ $? -ne 0 ]; then
+                    echo "Error: Failed to create extraction directory $CI_EXTRACT_DIR"
+                    unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir _zip_cluster_dir _found_zip
+                    return 1 2>/dev/null || exit 1
+                fi
+
+                echo "Extracting zip file to $CI_EXTRACT_DIR..."
+                unzip -o -q "$_found_zip" -d "$CI_EXTRACT_DIR"
+                if [ $? -ne 0 ]; then
+                    echo "Error: Failed to extract zip file"
+                    unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _setup_cluster_forklift_images _setup_cluster_forklift_images_arg _arg _script_dir _nfs_cluster_dir _zip_cluster_dir _found_zip
+                    return 1 2>/dev/null || exit 1
+                fi
+                echo "Zip file extracted successfully."
+
+                if [ -d "$CI_EXTRACT_DIR/home/jenkins" ]; then
+                    _zip_cluster_dir=$(find "$CI_EXTRACT_DIR/home/jenkins" -maxdepth 2 -type d -name "$CLUSTER" 2>/dev/null | head -1)
+                elif [ -d "$CI_EXTRACT_DIR/cluster-dirs" ]; then
+                    _zip_cluster_dir=$(find "$CI_EXTRACT_DIR/cluster-dirs" -maxdepth 2 -type d -name "$CLUSTER" 2>/dev/null | head -1)
+                fi
+
+                if [ -n "$_zip_cluster_dir" ] && [ -d "$_zip_cluster_dir" ]; then
+                    echo "Found cluster in extracted zip: $_zip_cluster_dir"
+                    _cluster_dir="$_zip_cluster_dir"
+                fi
             fi
+            unset _found_zip
         fi
-        unset _found_zip
     fi
 fi
 
@@ -451,7 +522,8 @@ if [ -z "$_cluster_dir" ]; then
     if [ -d "$DOWNLOADS_DIR" ]; then
         echo "  Checked Downloads: $DOWNLOADS_DIR/$CLUSTER*.zip (not found)"
     fi
-    unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _nfs_cluster_dir _zip_cluster_dir _script_dir
+    echo "  Hint: use --kubeconfig to use a bare kubeconfig file from Downloads"
+    unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _nfs_cluster_dir _zip_cluster_dir _script_dir
     return 1 2>/dev/null || exit 1
 fi
 unset _nfs_cluster_dir _zip_cluster_dir
@@ -460,7 +532,7 @@ unset _nfs_cluster_dir _zip_cluster_dir
 _auth_dir="$_cluster_dir/auth"
 if [ ! -d "$_auth_dir" ]; then
     echo "Error: Auth directory not found: $_auth_dir"
-    unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _auth_dir _nfs_cluster_dir _zip_cluster_dir _script_dir
+    unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _auth_dir _nfs_cluster_dir _zip_cluster_dir _script_dir
     return 1 2>/dev/null || exit 1
 fi
 
@@ -470,28 +542,28 @@ _password_file="$_auth_dir/kubeadmin-password"
 
 if [ ! -f "$_kubeconfig_file" ]; then
     echo "Error: kubeconfig file not found: $_kubeconfig_file"
-    unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _auth_dir _kubeconfig_file _password_file _script_dir
+    unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _auth_dir _kubeconfig_file _password_file _script_dir
     return 1 2>/dev/null || exit 1
 fi
 
 if [ ! -f "$_password_file" ]; then
     echo "Error: kubeadmin-password file not found: $_password_file"
-    unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _auth_dir _kubeconfig_file _password_file _script_dir
+    unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _auth_dir _kubeconfig_file _password_file _script_dir
     return 1 2>/dev/null || exit 1
 fi
 
-# Export credentials
+# Export credentials (tr -d '\r' handles kubeconfigs with Windows CRLF line endings)
 export KUBE_USER="kubeadmin"
-export KUBE_PASSWORD=$(cat "$_password_file")
-export KUBE_API_URL=$(grep "server:" "$_kubeconfig_file" | head -1 | awk '{print $2}')
+export KUBE_PASSWORD=$(tr -d '\r' < "$_password_file")
+export KUBE_API_URL=$(grep "server:" "$_kubeconfig_file" | head -1 | awk '{print $2}' | tr -d '\r')
 
 # Extract token if available (some clusters use certificate auth instead)
-_token_value=$(grep "token:" "$_kubeconfig_file" | awk '{print $2}')
+_token_value=$(grep "token:" "$_kubeconfig_file" | awk '{print $2}' | tr -d '\r')
 if [ -z "$_token_value" ]; then
     # No token in kubeconfig - get one using kubectl create token
     if ! command -v kubectl >/dev/null 2>&1; then
         echo "Error: kubectl not found (requires kubectl 1.24+)"
-        unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _auth_dir _kubeconfig_file _password_file _script_dir
+        unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _auth_dir _kubeconfig_file _password_file _script_dir
         return 1 2>/dev/null || exit 1
     fi
     
@@ -503,7 +575,7 @@ if [ -z "$_token_value" ]; then
         echo "Error: Could not obtain SA token"
         echo "  $_token_value"
         echo "  Note: Requires kubectl 1.24+"
-        unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _auth_dir _kubeconfig_file _password_file _token_value _script_dir
+        unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg _cluster_dir _auth_dir _kubeconfig_file _password_file _token_value _script_dir
         return 1 2>/dev/null || exit 1
     fi
     
@@ -525,8 +597,9 @@ export KUBE_UI_URL=$(echo "$_api_url_no_port" | sed 's|https://api\.|https://con
 if [ "$_setup_cluster_login" = "1" ]; then
     if [ "$_setup_cluster_login_default" = "1" ]; then
         # Copy kubeconfig to ~/.kube/config for global access
+        # Use tr -d to strip Windows carriage returns (CRLF → LF)
         mkdir -p "$HOME/.kube"
-        cp "$_kubeconfig_file" "$HOME/.kube/config"
+        tr -d '\r' < "$_kubeconfig_file" > "$HOME/.kube/config"
         if [ $? -eq 0 ]; then
             export KUBECONFIG="$HOME/.kube/config"
             echo "Kubeconfig copied to ~/.kube/config - kubectl will use cluster: $CLUSTER"
@@ -541,7 +614,7 @@ if [ "$_setup_cluster_login" = "1" ]; then
 fi
 
 # Cleanup temporary variables
-unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg
+unset _setup_cluster_login _setup_cluster_login_default _setup_cluster_cleanup _setup_cluster_skip_nfs _setup_cluster_kubeconfig _setup_cluster_kubevirt _setup_cluster_forklift _setup_cluster_forklift_cleanup _arg
 unset _setup_cluster_forklift_images _setup_cluster_forklift_images_arg
 unset _cluster_dir _auth_dir _kubeconfig_file _password_file _api_url_no_port _token_value
 unset _script_dir _forklift_script
